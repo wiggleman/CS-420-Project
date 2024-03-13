@@ -27,22 +27,7 @@ object CL3ToCPSTranslator extends (S.Tree => H.Tree) {
         }
         H.LetF(funs, transform(body)(ctx))
       }
-      /*
-      case S.App(fun: S.Tree, args: Seq[S.Tree]) =>
-        transform(fun)
-                 ((a: H.Atom) => {
-                   val ret = Symbol.fresh("ret")
-                   val v   = Symbol.fresh("v")
-                   args.foldRight(H.LetC(Seq(H.Cnt(ret, Seq(v), ctx(v))),
-                                         H.AppF(a, ret, Seq.empty[H.Atom])))
-                                 ((b, t) => transform(b)
-                                                     ((c: H.Atom) => {
-                                                       t match 
-                                                         case H.LetC(cnts, H.AppF(fun, retC, args)) =>
-                                                           H.LetC(cnts, H.AppF(fun, retC, c +: args)) // Still valid after copied?
-                                                         // Case match not exhaustive!
-                                                     }))})
-      */
+
       case S.App(fun: S.Tree, args: Seq[S.Tree]) =>{
         //@annotation.tailrec
         def appTransform(es: Seq[S.Tree])(as: Seq[H.Atom]): H.Tree = {
@@ -59,7 +44,7 @@ object CL3ToCPSTranslator extends (S.Tree => H.Tree) {
         }
         appTransform(fun +: args)(Seq.empty[H.Atom])
       }
-      case S.If(S.Prim(prim: S.Primitive, args: Seq[S.Tree]),
+      case S.If(S.Prim(prim: L3TestPrimitive, args: Seq[S.Tree]),
                 thenE: S.Tree, elseE: S.Tree) => {
         val c = Symbol.fresh("c")
         val r = Symbol.fresh("r")
@@ -115,7 +100,7 @@ object CL3ToCPSTranslator extends (S.Tree => H.Tree) {
         primTransform(args)(Seq.empty[H.Atom])
       }
       case S.Halt(arg: S.Tree) =>
-        transform(arg)(ctx)
+        transform(arg)((a:H.Atom) => H.Halt(a))
       case S.Ident(value) => 
         ctx(value)
       case S.Lit(value) => 
