@@ -34,7 +34,7 @@ object CL3ToCPSTranslator extends (S.Tree => H.Tree) {
                cond(_cond, thenC, elseC))
       }
       // as is
-      case S.Let(bdgs: Seq[(S.Name, S.Tree)], body: S.Tree) =>
+      case S.Let(bdgs: Seq[(S.Name, S.Tree)], body: S.Tree) => // stack overflow?
         bdgs.foldRight(tail(body, c)) // modified
                       ((b, t) => nonTail(b._2)
                                         ((a: H.Atom) => H.LetP(b._1, L3ValuePrimitive.Id, Seq(a), t)))
@@ -65,23 +65,65 @@ object CL3ToCPSTranslator extends (S.Tree => H.Tree) {
     given Position = tree.pos
 
     tree match {
-      // optimization
-      // (if (e₁ #f #f))
-      case S.If(_cond: S.Tree, S.Lit(CL3Literal.BooleanLit(false)),
-                               S.Lit(CL3Literal.BooleanLit(false))) => 
-        H.AppC(elseC, Seq.empty[H.Atom])
-      // (if (e₁ #f #t))
-      case S.If(_cond: S.Tree, S.Lit(CL3Literal.BooleanLit(false)),
-                               S.Lit(CL3Literal.BooleanLit(true))) =>
-        cond(_cond, elseC, thenC)
-      // (if (e₁ #t #f))
-      case S.If(_cond: S.Tree, S.Lit(CL3Literal.BooleanLit(true)),
-                               S.Lit(CL3Literal.BooleanLit(false))) =>
-        cond(_cond, thenC, elseC)
-      // (if (e₁ #t #t))
-      case S.If(_cond: S.Tree, S.Lit(CL3Literal.BooleanLit(true)),
-                               S.Lit(CL3Literal.BooleanLit(true))) =>
+      // base case
+      /*
+      case S.Lit(CL3Literal.BooleanLit(v)) =>
+        H.AppC(if (v) thenC else elseC, Seq.empty[H.Atom])
+      case S.Lit(_) =>
         H.AppC(thenC, Seq.empty[H.Atom])
+      case S.Ident(name) =>
+        cond(S.Prim(L3TestPrimitive.Eq,
+                    Seq(name, S.Lit(CL3Literal.BooleanLit(false))),
+                  elseC, thenC),
+             thenC, elseC)
+      case S.Let() =>
+        ???
+      case S.Let() =>
+        ???
+      */
+      case S.Prim(prim: L3TestPrimitive, args: Seq[S.Tree]) =>{
+        def primTransform(es: Seq[S.Tree])(as: Seq[H.Atom]): H.Tree = {
+          es match {
+            case Seq() =>
+              H.If(prim, as, thenC, elseC)
+            case e +: es => nonTail(e)
+                                   ((a: H.Atom) => primTransform(es)(as :+ a))
+          }
+        }
+        primTransform(args)(Seq.empty[H.Atom])
+      }
+      // optimization
+      case S.If(_cond: S.Tree, S.Lit(CL3Literal.BooleanLit(vt)),
+                               S.Lit(CL3Literal.BooleanLit(ve))) => {
+        if (vt != ve) {
+          if (vt) cond(_cond, thenC, elseC) else cond(_cond, elseC, thenC)
+        }
+        else { 
+          _cond match {
+            case S.Prim(L3ValuePrimitive.ByteRead |
+                        L3ValuePrimitive.ByteWrite, _) =>
+              nonTail(_cond)((a: H.Atom) => H.AppC(if (vt) thenC else elseC, Seq.empty[H.Atom]))
+            case _ =>
+              H.AppC(if (vt) thenC else elseC, Seq.empty[H.Atom])
+          }
+        }
+      }
+      // // (if (e₁ #f #f))
+      // case S.If(_cond: S.Tree, S.Lit(CL3Literal.BooleanLit(false)),
+      //                          S.Lit(CL3Literal.BooleanLit(false))) => 
+      //   H.AppC(elseC, Seq.empty[H.Atom])
+      // // (if (e₁ #f #t))
+      // case S.If(_cond: S.Tree, S.Lit(CL3Literal.BooleanLit(false)),
+      //                          S.Lit(CL3Literal.BooleanLit(true))) =>
+      //   cond(_cond, elseC, thenC)
+      // // (if (e₁ #t #f))
+      // case S.If(_cond: S.Tree, S.Lit(CL3Literal.BooleanLit(true)),
+      //                          S.Lit(CL3Literal.BooleanLit(false))) =>
+      //   cond(_cond, thenC, elseC)
+      // // (if (e₁ #t #t))
+      // case S.If(_cond: S.Tree, S.Lit(CL3Literal.BooleanLit(true)),
+      //                          S.Lit(CL3Literal.BooleanLit(true))) =>
+      //   H.AppC(thenC, Seq.empty[H.Atom])
       // (if (e₁ e₂ #f))
       case S.If(_cond: S.Tree, thenE: S.Tree,
                                S.Lit(CL3Literal.BooleanLit(false))) => {
@@ -119,7 +161,7 @@ object CL3ToCPSTranslator extends (S.Tree => H.Tree) {
                    H.Cnt(bc, Seq.empty[Symbol], cond(elseE, thenC, elseC))),
                cond(_cond, ac, bc))
       }
-      case default =>{
+      case default => {
         nonTail(default)((a: H.Atom) => H.If(L3TestPrimitive.Eq, 
                                              Seq(a, CL3Literal.BooleanLit(false)),
                                              elseC, thenC))
@@ -181,8 +223,8 @@ object CL3ToCPSTranslator extends (S.Tree => H.Tree) {
       */
       case S.Prim(prim: L3TestPrimitive, args: Seq[S.Tree]) =>
         nonTail(S.If(S.Prim(prim, args),
-                       S.Lit(CL3Literal.BooleanLit(true)),
-                       S.Lit(CL3Literal.BooleanLit(false))))
+                     S.Lit(CL3Literal.BooleanLit(true)),
+                     S.Lit(CL3Literal.BooleanLit(false))))
                (ctx)
       case S.Prim(prim: S.Primitive, args: Seq[S.Tree]) => {
         val n = Symbol.fresh("n")
